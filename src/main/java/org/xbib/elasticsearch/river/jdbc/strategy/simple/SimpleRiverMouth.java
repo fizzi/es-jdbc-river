@@ -1,4 +1,3 @@
-
 package org.xbib.elasticsearch.river.jdbc.strategy.simple;
 
 import org.elasticsearch.action.admin.cluster.health.ClusterHealthResponse;
@@ -23,19 +22,21 @@ import org.xbib.elasticsearch.river.jdbc.support.StructuredObject;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.elasticsearch.ElasticSearchException;
-import org.elasticsearch.action.bulk.BulkItemResponse;
+import org.elasticsearch.action.admin.indices.create.CreateIndexResponse;
+import org.elasticsearch.common.xcontent.XContentFactory;
 
 /**
  * A river mouth implementation for the 'simple' strategy.
  * <p/>
- * This mouth receives StructuredObjects in the
- * create(), index(), or delete() methods and passes them to the bulk indexing client.
+ * This mouth receives StructuredObjects in the create(), index(), or delete()
+ * methods and passes them to the bulk indexing client.
  * <p/>
- * Bulk indexing is implemented concurrently. Therefore, many JDBC rivers can pass their
- * data through this river target to ElasticSearch, without having to take precaution
- * of overwhelming the index.
+ * Bulk indexing is implemented concurrently. Therefore, many JDBC rivers can
+ * pass their data through this river target to ElasticSearch, without having to
+ * take precaution of overwhelming the index.
  * <p/>
- * The default size of a bulk request is 100 documents, the maximum number of concurrent requests is 30.
+ * The default size of a bulk request is 100 documents, the maximum number of
+ * concurrent requests is 30.
  *
  * @author Jörg Prante <joergprante@gmail.com>
  */
@@ -90,10 +91,6 @@ public class SimpleRiverMouth implements RiverMouth {
             outstandingBulkRequests.decrementAndGet();
             logger().info("bulk [{}] success [{} items] [{}ms]",
                     executionId, response.getItems().length, response.getTookInMillis());
-            
-            
-            
-            
 
         }
 
@@ -244,7 +241,6 @@ public class SimpleRiverMouth implements RiverMouth {
         bulk.add(request);
     }
 
-
     @Override
     public void delete(StructuredObject object) {
         if (Strings.hasLength(object.index())) {
@@ -288,7 +284,6 @@ public class SimpleRiverMouth implements RiverMouth {
 
     @Override
     public void createIndexIfNotExists(String settings, String mapping) {
-
         if (client.admin().indices().prepareExists(index).execute().actionGet().isExists()) {
             if (Strings.hasLength(settings)) {
                 client.admin().indices().prepareUpdateSettings(index).setSettings(settings).execute().actionGet();
@@ -302,10 +297,39 @@ public class SimpleRiverMouth implements RiverMouth {
         if (Strings.hasLength(settings)) {
             builder.setSettings(settings);
         }
-        builder.execute().actionGet();
+        logger.info("@@@@@@@@@@@@@@@@ builder.execute().actionGet();");
+        logger.info("@@@@@@@@@@@@@@@@ settings:{}", settings);
+        logger.info("@@@@@@@@@@@@@@@@ mapping:{}", mapping);
+        CreateIndexResponse createIndexResponse = builder.execute().actionGet();
+        while (!createIndexResponse.isAcknowledged()) {
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException ex) {
+                logger.error("Error on sleeping thread: {}", ex);
+            }
+        }
+//        Code added to support location
+        addLocationsMapping();
         if (Strings.hasLength(mapping)) {
             client.admin().indices().preparePutMapping(index).setType(type).setSource(mapping).execute().actionGet();
         }
+    }
+
+    private void addLocationsMapping() {
+        String mappingLocations = null;
+        try {
+            mappingLocations = XContentFactory.jsonBuilder().startObject().
+                    startObject(type).startObject("properties")
+                    .startObject("locations").startObject("properties").
+                    startObject("location").field("type", "geo_point").
+                    endObject().startObject("address").field("type", "string").
+                    endObject().endObject().endObject().endObject().endObject().string();
+        } catch (IOException ex) {
+            logger.error("Error on adding Locations Mapping {}", ex.getMessage());
+        }
+
+        client.admin().indices().preparePutMapping(index).setType(type).
+                setSource(mappingLocations).execute().actionGet();
     }
 
     @Override
@@ -316,8 +340,8 @@ public class SimpleRiverMouth implements RiverMouth {
     public void waitForCluster(ClusterHealthStatus status, TimeValue timeout) throws IOException {
         try {
             logger().info("waiting for cluster state {}", status.name());
-            ClusterHealthResponse healthResponse =
-                    client.admin().cluster().prepareHealth().setWaitForStatus(status).setTimeout(timeout).execute().actionGet();
+            ClusterHealthResponse healthResponse
+                    = client.admin().cluster().prepareHealth().setWaitForStatus(status).setTimeout(timeout).execute().actionGet();
             if (healthResponse.isTimedOut()) {
                 throw new IOException("cluster state is " + healthResponse.getStatus().name()
                         + " and not " + status.name()

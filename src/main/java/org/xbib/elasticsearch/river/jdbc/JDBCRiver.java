@@ -170,11 +170,16 @@ public class JDBCRiver extends AbstractRiverComponent implements River {
             
             //add locations mapping
             
-            String mapping = XContentFactory.jsonBuilder().startObject().startObject(typeName).startObject("properties")
-                        .startObject("locations").startObject("properties").startObject("location").field("type", "geo_point").endObject().startObject("address").field("type", "string").endObject()
-                        .endObject().endObject().endObject().endObject().string();
-            client.admin().indices().preparePutMapping("jdbc").setType("jdbc").setSource(mapping).execute().actionGet();
-            logger.info("mappping", mapping);
+//            String mapping = XContentFactory.jsonBuilder().startObject().
+//                    startObject(typeName).startObject("properties")
+//                    .startObject("locations").startObject("properties").
+//                    startObject("location").field("type", "geo_point").
+//                    endObject().startObject("address").field("type", "string").
+//                    endObject().endObject().endObject().endObject().endObject().string();
+//            
+//            client.admin().indices().preparePutMapping(indexName).setType(typeName).
+//                    setSource(mapping).execute().actionGet();
+//            logger.info("mappping", mapping);
             
             
         } catch (Exception e) {

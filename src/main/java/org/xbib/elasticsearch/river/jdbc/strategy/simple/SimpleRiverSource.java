@@ -1,4 +1,3 @@
-
 package org.xbib.elasticsearch.river.jdbc.strategy.simple;
 
 import org.elasticsearch.action.bulk.BulkResponse;
@@ -45,10 +44,8 @@ import java.text.ParseException;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
-import org.elasticsearch.client.Requests;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentFactory;
-import static org.xbib.elasticsearch.river.jdbc.RiverFlow.ID_INFO_RIVER_INDEX;
 
 /**
  * A river source implementation for the 'simple' strategy.
@@ -302,7 +299,7 @@ public class SimpleRiverSource implements RiverSource {
     /**
      * Merge rows.
      *
-     * @param results  the ResultSet
+     * @param results the ResultSet
      * @param listener
      * @return a digest of the merged row content
      * @throws IOException
@@ -325,7 +322,6 @@ public class SimpleRiverSource implements RiverSource {
         return context.digesting() && listener.digest() != null
                 ? Base64.encodeBytes(listener.digest().digest()) : null;
     }
-
 
     /**
      * Send acknowledge SQL command if exists.
@@ -456,7 +452,6 @@ public class SimpleRiverSource implements RiverSource {
         return statement.executeQuery(sql);
     }
 
-
     /**
      * Execute prepared update statement
      *
@@ -473,6 +468,7 @@ public class SimpleRiverSource implements RiverSource {
         return this;
     }
 
+    @Override
     public void beforeFirstRow(ResultSet result, ValueListener listener)
             throws SQLException, IOException, ParseException {
         ResultSetMetaData metadata = result.getMetaData();
@@ -480,8 +476,11 @@ public class SimpleRiverSource implements RiverSource {
         List<String> keys = new LinkedList();
         for (int i = 1; i <= columns; i++) {
             keys.add(metadata.getColumnLabel(i));
+            if (metadata.getColumnLabel(i).equals("nazione")) {
+                keys.add("locations");
+            }
         }
-        
+
         if (listener != null) {
             listener.keys(keys);
         }
@@ -491,7 +490,7 @@ public class SimpleRiverSource implements RiverSource {
      * Get next row and prepare the values for processing. The labels of each
      * columns are used for the ValueListener as paths for JSON object merging.
      *
-     * @param result   the result set
+     * @param result the result set
      * @param listener the listener
      * @return true if row exists and was processed, false otherwise
      * @throws SQLException
@@ -519,28 +518,28 @@ public class SimpleRiverSource implements RiverSource {
                 logger().trace("value={} class={}", value, value != null ? value.getClass().getName() : "");
             }
             values.add(value);
-            
-            Long idES = 0L;
-            if(metadata.getColumnLabel(i).equals("idES")){
-                idES = (Long)value;
-                logger().info("idES={}", idES);
-            }
-            
-            if(metadata.getColumnLabel(i).equals("nazione")){
-                
+            //
+//            Long idES = 0L;
+//            if(metadata.getColumnLabel(i).equals("idES")){
+//                idES = (Long)value;
+//                logger().info("idES={}", idES);
+//            }
+//            
+            if (metadata.getColumnLabel(i).equals("nazione")) {
+
                 XContentBuilder builder = XContentFactory.jsonBuilder().startObject();
-                
-                builder.startArray("locations");
+
+                builder.startArray("location");
                 builder.startObject();
                 builder.field("address", value);
-                builder.field("location", "");
+
+                //TODO: GEOPOINT CODE HERE
+                builder.field("location", "15,45");
                 builder.endObject();
                 builder.endArray();
-                
-//                values.add(value);
-                
-                
-                
+
+                values.add(builder.string());
+
 //                context.riverMouth().client().prepareBulk()
 //                .add(Requests.indexRequest("jdbc")
 //                        .type("jdbc")
@@ -549,19 +548,12 @@ public class SimpleRiverSource implements RiverSource {
 //                )
 //                .execute()
 //                .actionGet();
-                
-                logger().info("builder={}", builder.string());
-                
+                logger().info("##################### builder={}", builder.string());
+
             }
-            
-            
-            
-            
+
         }
-        
-        
-        
-        
+
         if (listener != null) {
             listener.values(values);
         }
