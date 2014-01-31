@@ -1,5 +1,7 @@
 package org.xbib.elasticsearch.river.jdbc.strategy.simple;
 
+import java.io.ByteArrayInputStream;
+import java.io.File;
 import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.common.Base64;
 import org.elasticsearch.common.io.Streams;
@@ -12,10 +14,12 @@ import org.xbib.elasticsearch.river.jdbc.RiverSource;
 import org.xbib.elasticsearch.river.jdbc.support.RiverContext;
 import org.xbib.elasticsearch.river.jdbc.support.SimpleValueListener;
 import org.xbib.elasticsearch.river.jdbc.support.ValueListener;
-
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.Reader;
 import java.math.BigDecimal;
 import java.security.NoSuchAlgorithmException;
@@ -44,8 +48,23 @@ import java.text.ParseException;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
-import org.elasticsearch.common.xcontent.XContentBuilder;
-import org.elasticsearch.common.xcontent.XContentFactory;
+import java.util.Map;
+import java.util.Properties;
+import java.util.UUID;
+import org.elasticsearch.action.search.SearchResponse;
+import org.elasticsearch.action.search.SearchType;
+import org.elasticsearch.client.Client;
+import org.elasticsearch.client.transport.TransportClient;
+import org.elasticsearch.common.Strings;
+import org.elasticsearch.common.collect.Lists;
+import org.elasticsearch.common.collect.Maps;
+import org.elasticsearch.common.geo.GeoPoint;
+import org.elasticsearch.common.settings.ImmutableSettings;
+import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.transport.InetSocketTransportAddress;
+import org.elasticsearch.index.query.FilterBuilders;
+import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.search.SearchHit;
 
 /**
  * A river source implementation for the 'simple' strategy.
@@ -62,6 +81,10 @@ import org.elasticsearch.common.xcontent.XContentFactory;
 public class SimpleRiverSource implements RiverSource {
 
     private final ESLogger logger = ESLoggerFactory.getLogger(SimpleRiverSource.class.getSimpleName());
+
+    private Client client;
+
+    private Properties properties;
 
     protected RiverContext context;
 
@@ -480,6 +503,7 @@ public class SimpleRiverSource implements RiverSource {
                 keys.add("locations");
             }
         }
+        keys.add("validated");
 
         if (listener != null) {
             listener.keys(keys);
@@ -509,54 +533,122 @@ public class SimpleRiverSource implements RiverSource {
     private void processRow(ResultSet result, ValueListener listener)
             throws SQLException, IOException, ParseException {
         Locale locale = context != null ? context.locale() != null ? context.locale() : Locale.getDefault() : Locale.getDefault();
-        List<Object> values = new LinkedList();
+//        List<Object> values = Collections.synchronizedList(new LinkedList<Object>());
+        List<Object> values = new LinkedList<Object>();
         ResultSetMetaData metadata = result.getMetaData();
         int columns = metadata.getColumnCount();
         for (int i = 1; i <= columns; i++) {
             Object value = parseType(result, i, metadata.getColumnType(i), locale);
-            if (logger().isTraceEnabled()) {
-                logger().trace("value={} class={}", value, value != null ? value.getClass().getName() : "");
-            }
-            values.add(value);
-            //
-//            Long idES = 0L;
-//            if(metadata.getColumnLabel(i).equals("idES")){
-//                idES = (Long)value;
-//                logger().info("idES={}", idES);
-//            }
-//            
-            if (metadata.getColumnLabel(i).equals("nazione")) {
-
-                XContentBuilder builder = XContentFactory.jsonBuilder().startObject();
-
-                builder.startArray("location");
-                builder.startObject();
-                builder.field("address", value);
-
-                //TODO: GEOPOINT CODE HERE
-                builder.field("location", "15,45");
-                builder.endObject();
-                builder.endArray();
-
-                values.add(builder.string());
-
-//                context.riverMouth().client().prepareBulk()
-//                .add(Requests.indexRequest("jdbc")
-//                        .type("jdbc")
-//                        .id(Long.toString(idES))
-//                        .source(builder)
-//                )
-//                .execute()
-//                .actionGet();
-                logger().info("##################### builder={}", builder.string());
-
-            }
-
+            analyzeColumnLabel(values, value, metadata.getColumnLabel(i), result);
         }
-
+        values.add(Boolean.FALSE);
         if (listener != null) {
+            logger().info("values size={}", values.size());
             listener.values(values);
         }
+    }
+
+    private void analyzeColumnLabel(List<Object> values, Object value, String columnLabel,
+            ResultSet result) throws SQLException {
+        if (logger().isTraceEnabled()) {
+            logger().trace("value={} class={}", value, value != null ? value.getClass().getName() : "");
+        }
+        if (!columnLabel.equals("immagine")) {
+            values.add(value);
+            if (columnLabel.equals("nazione")) {
+//                // instance a json mapper
+//                ObjectMapper mapper = new ObjectMapper(); // create once, reuse
+//                Location location = new Location();
+//                if (value != null) {
+//                    location.setAddress(value.toString());
+//                }
+//                location.setLocation(new GeoPoint(14, 45));
+//                // generate json
+//                values.add(Lists.newArrayList(mapper.writeValueAsString(location)));
+                Map<String, Object> json = Maps.<String, Object>newHashMap();
+                json.put("address", value);
+                if (value != null) {
+                    SearchHit[] docs = this.executeGeoNameQuery(value);
+                    if (docs.length != 0) {
+                        logger().info("Found location={}", docs[0].getSourceAsString());
+                        double longitude = Double.parseDouble(docs[0].getSource().get("longitude").toString());
+                        double latitude = Double.parseDouble(docs[0].getSource().get("latitude").toString());
+                        json.put("location", new GeoPoint(latitude, longitude));
+                    }
+                }
+                values.add(Lists.newArrayList(json));
+            }
+        } else if (value != null && Strings.hasLength(result.getString("nomefile"))) {
+
+            InputStream is = new ByteArrayInputStream(((byte[]) value));
+            // read it with BufferedReader
+//            BufferedReader br = new BufferedReader(new InputStreamReader(is));
+//            String line;
+            try {
+//                while ((line = br.readLine()) != null) {
+//                    System.out.println(line);
+//                }
+//                br.close();
+                String fileName = UUID.randomUUID() + "-" + result.getString("nomefile");
+
+                Properties properties = this.readProperties();
+                String pathImg = properties.getProperty("imagePath",
+                        System.getProperty("file.separator") + "GeoNews");
+                File dirIMG = new File(pathImg);
+                dirIMG.mkdir();
+                String fileOnDisk = pathImg + System.getProperty("file.separator")
+                        + fileName;
+                logger.info("PATH {}", fileOnDisk);
+                File fileImage = new File(fileOnDisk);
+                OutputStream os = new FileOutputStream(fileImage);
+                byte[] buffer = new byte[1024];
+                int len;
+                while ((len = is.read(buffer)) != -1) {
+                    os.write(buffer, 0, len);
+                }
+                is.close();
+                os.close();
+                values.add(fileOnDisk);
+            } catch (IOException ex) {
+                logger.error("Error writing file image", ex);
+            } catch (SQLException ex) {
+                logger.error("Error writing file image", ex);
+            }
+        } else {
+            values.add(value);
+        }
+    }
+
+    private SearchHit[] executeGeoNameQuery(Object value) {
+        Client client = this.getClient();
+        SearchResponse response = client.prepareSearch("geonames").setSearchType(
+                SearchType.DFS_QUERY_THEN_FETCH).setQuery(
+                        QueryBuilders.filteredQuery(
+                                QueryBuilders.fieldQuery("name", value),
+                                FilterBuilders.termFilter("type", "country")))
+                .setFrom(0).setSize(1).setExplain(true).execute().actionGet();
+
+        SearchHit[] docs = response.getHits().getHits();
+        if (docs.length == 0) {
+            response = client.prepareSearch("geonames").setSearchType(
+                    SearchType.DFS_QUERY_THEN_FETCH).setQuery(
+                            QueryBuilders.filteredQuery(
+                                    QueryBuilders.fuzzyQuery("name", value),
+                                    FilterBuilders.termFilter("type", "country")))
+                    .setFrom(0).setSize(1).setExplain(true).execute().actionGet();
+            docs = response.getHits().getHits();
+        }
+        if (docs.length == 0) {
+            response = client.prepareSearch("geonames").setSearchType(
+                    SearchType.DFS_QUERY_THEN_FETCH).setQuery(
+                            QueryBuilders.filteredQuery(
+                                    QueryBuilders.moreLikeThisFieldQuery("name").
+                                    likeText((String) value),
+                                    FilterBuilders.termFilter("type", "country")))
+                    .setFrom(0).setSize(1).setExplain(true).execute().actionGet();
+            docs = response.getHits().getHits();
+        }
+        return docs;
     }
 
     /**
@@ -640,7 +732,8 @@ public class SimpleRiverSource implements RiverSource {
     }
 
     @Override
-    public SimpleRiverSource rounding(String rounding) {
+    public SimpleRiverSource rounding(String rounding
+    ) {
         if ("ceiling".equalsIgnoreCase(rounding)) {
             this.rounding = BigDecimal.ROUND_CEILING;
         } else if ("down".equalsIgnoreCase(rounding)) {
@@ -662,7 +755,8 @@ public class SimpleRiverSource implements RiverSource {
     }
 
     @Override
-    public SimpleRiverSource precision(int scale) {
+    public SimpleRiverSource precision(int scale
+    ) {
         this.scale = scale;
         return this;
     }
@@ -1272,4 +1366,42 @@ public class SimpleRiverSource implements RiverSource {
         }
         return null;
     }
+
+    private Client getClient() {
+        if (this.client == null) {
+            String geonameServerAddress = this.readProperties().getProperty("geonameServerAddress");
+            String geonameServerPort = this.readProperties().getProperty("geonameServerPort", "9300");
+            String clusterName = this.readProperties().getProperty("clusterName", "elasticsearch");
+            Settings settings = ImmutableSettings.settingsBuilder()
+                    .put("cluster.name", clusterName).build();
+            this.client = new TransportClient(settings).addTransportAddress(
+                    new InetSocketTransportAddress(geonameServerAddress,
+                            Integer.parseInt(geonameServerPort)));
+        }
+        return client;
+    }
+
+    private Properties readProperties() {
+        if (this.properties == null) {
+            properties = new Properties();
+            InputStream input = null;
+            try {
+                input = SimpleRiverSource.class.getResourceAsStream("/config.properties");
+                // load a properties file
+                properties.load(input);
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            } finally {
+                if (input != null) {
+                    try {
+                        input.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }
+        return properties;
+    }
+
 }
