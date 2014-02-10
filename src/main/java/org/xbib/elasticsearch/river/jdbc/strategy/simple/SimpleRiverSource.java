@@ -608,7 +608,9 @@ public class SimpleRiverSource implements RiverSource {
                 }
                 is.close();
                 os.close();
-                values.add(fileOnDisk);
+                String imageURL = properties.getProperty("publicImageURL");
+                values.add(imageURL + System.getProperty("file.separator")
+                        + fileName);
             } catch (IOException ex) {
                 logger.error("Error writing file image", ex);
             } catch (SQLException ex) {
