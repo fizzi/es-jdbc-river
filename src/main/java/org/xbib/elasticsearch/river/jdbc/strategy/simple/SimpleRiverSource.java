@@ -50,6 +50,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Random;
 import java.util.UUID;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.search.SearchType;
@@ -548,6 +549,30 @@ public class SimpleRiverSource implements RiverSource {
         }
     }
 
+    /**
+     *
+     * @param lon
+     * @param lat
+     * @return Shift the lon lat using a random distance between +/-1Km
+     */
+    private GeoPoint shiftLonLatPoint(double lon, double lat) {
+        //Earth’s radius, sphere
+        double earthRadius = 6378137;
+
+        //offsets in meters
+        Random rand = new Random();
+        double dn = (rand.nextDouble()-0.5d) * 2000; //Returns a number between [-1000, 1000]
+        double de = (rand.nextDouble()-0.5d) * 2000;
+
+        //Coordinate offsets in radians             
+        double dLat = dn / earthRadius;
+        double dLon = de / (earthRadius * Math.cos(Math.PI * lat / 180));
+        //OffsetPosition, decimal degrees
+        double latO = lat + dLat * 180 / Math.PI;
+        double lonO = lon + dLon * 180 / Math.PI;
+        return new GeoPoint(latO, lonO);
+    }
+
     private void analyzeColumnLabel(List<Object> values, Object value, String columnLabel,
             ResultSet result) throws SQLException {
         if (logger().isTraceEnabled()) {
@@ -573,7 +598,7 @@ public class SimpleRiverSource implements RiverSource {
                         logger().info("Found location={}", docs[0].getSourceAsString());
                         double longitude = Double.parseDouble(docs[0].getSource().get("longitude").toString());
                         double latitude = Double.parseDouble(docs[0].getSource().get("latitude").toString());
-                        json.put("location", new GeoPoint(latitude, longitude));
+                        json.put("location", this.shiftLonLatPoint(latitude, longitude));
                     }
                 }
                 values.add(Lists.newArrayList(json));
