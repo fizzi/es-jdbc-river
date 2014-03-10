@@ -21,7 +21,7 @@ import org.xbib.elasticsearch.river.jdbc.support.StructuredObject;
 
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.elasticsearch.ElasticSearchException;
+import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.action.admin.indices.create.CreateIndexResponse;
 import org.elasticsearch.common.xcontent.XContentFactory;
 
@@ -349,7 +349,7 @@ public class SimpleRiverMouth implements RiverMouth {
             } else {
                 logger().info("... cluster state ok");
             }
-        } catch (ElasticSearchException e) {
+        } catch (ElasticsearchException e) {
             throw new IOException("timeout, cluster does not respond to health request, cowardly refusing to continue with operations");
         }
     }

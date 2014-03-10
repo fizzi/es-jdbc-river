@@ -654,7 +654,11 @@ public class SimpleRiverSource implements RiverSource {
         SearchResponse response = client.prepareSearch("geonames").setSearchType(
                 SearchType.DFS_QUERY_THEN_FETCH).setQuery(
                         QueryBuilders.filteredQuery(
-                                QueryBuilders.fieldQuery("name", value),
+                                QueryBuilders.matchQuery("name", value),
+//                                        termQuery(
+//                                        commonTerms(
+//                                        matchQuery(
+//                                        fieldQuery("name", value),
                                 FilterBuilders.termFilter("type", "country")))
                 .setFrom(0).setSize(1).setExplain(true).execute().actionGet();
 
