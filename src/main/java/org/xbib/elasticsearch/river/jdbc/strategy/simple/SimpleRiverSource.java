@@ -553,24 +553,27 @@ public class SimpleRiverSource implements RiverSource {
      *
      * @param lon
      * @param lat
-     * @return Shift the lon lat using a random distance between +/-1Km
+     * @return Shift the lon lat using a random distance between 1Km
      */
-    private GeoPoint shiftLonLatPoint(double lon, double lat) {
+    private GeoPoint shiftLonLatPoint(double lat, double lon) {
         //Earth’s radius, sphere
-        double earthRadius = 6378137;
-
+        final double earthRadius = 6378137;
         //offsets in meters
         Random rand = new Random();
-        double dn = (rand.nextDouble()-0.5d) * 2000; //Returns a number between [-1000, 1000]
-        double de = (rand.nextDouble()-0.5d) * 2000;
-
+        double dn = (rand.nextDouble() - 0.5d) * 2000; //Returns a number between [-1000, 1000]
+        double de = (rand.nextDouble() - 0.5d) * 2000;
+//        final double dn = rand.nextInt(1001);
+//        final double de = rand.nextInt(1001);
+//        lon += rand.nextDouble() * 0.001;
+//        lat += rand.nextDouble() * 0.001;
         //Coordinate offsets in radians             
-        double dLat = dn / earthRadius;
-        double dLon = de / (earthRadius * Math.cos(Math.PI * lat / 180));
+        final double dLat = dn / earthRadius;
+        final double dLon = de / (earthRadius * Math.cos(Math.PI * lat / 180));
         //OffsetPosition, decimal degrees
-        double latO = lat + dLat * 180 / Math.PI;
-        double lonO = lon + dLon * 180 / Math.PI;
+        final double latO = lat + dLat * 180 / Math.PI;
+        final double lonO = lon + dLon * 180 / Math.PI;
         return new GeoPoint(latO, lonO);
+//        return new GeoPoint(lat, lon);
     }
 
     private void analyzeColumnLabel(List<Object> values, Object value, String columnLabel,
